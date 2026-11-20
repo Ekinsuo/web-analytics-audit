@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 const { chromium } = createRequire(import.meta.url)('playwright');
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
@@ -72,6 +73,84 @@ async function findAndClick(page, selectors, textRe) {
       }
     } catch { /* */ }
   }
+  return null;
+}
+
+const CHECKOUT_TXT = /^\s*(sepeti onayla|alışverişi tamamla|ödemeye geç|ödeme adımına geç|devam et|checkout|proceed to checkout|go to checkout|continue to checkout|kasaya git|zur kasse)\b/i;
+
+// Fetches a text resource: via the browser context (real network), falling back to an in-page fetch (same-origin / test mode).
+async function fetchText(ctx, page, u) {
+  try {
+    const r = await ctx.request.get(u, { timeout: 20000, maxRedirects: 5 });
+    if (r.ok()) {
+      let buf = await r.body();
+      if (/\.gz(\?|$)/i.test(u) || (buf[0] === 0x1f && buf[1] === 0x8b)) { try { buf = zlib.gunzipSync(buf); } catch { /* not gzip */ } }
+      return buf.toString('utf8', 0, Math.min(buf.length, 3000000));
+    }
+  } catch { /* fall back */ }
+  try { return await page.evaluate(async (u) => { const r = await fetch(u); return r.ok ? (await r.text()).slice(0, 3000000) : null; }, u); } catch { return null; }
+}
+const locs = (xml) => Array.from(String(xml || '').matchAll(/<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*<\/loc>/gi)).map((m) => m[1].replace(/&amp;/g, '&'));
+
+// robots.txt → sitemap(s) → product sitemap → 3 candidate URLs (start / middle / end)
+async function sitemapCandidates(ctx, page, origin, notes) {
+  const robots = await fetchText(ctx, page, origin + '/robots.txt');
+  let maps = robots ? Array.from(robots.matchAll(/^\s*sitemap:\s*(\S+)/gim)).map((m) => m[1]) : [];
+  const trail = [maps.length ? 'robots.txt (' + maps.length + ' sitemap)' : 'robots.txt (no sitemap line)'];
+  if (!maps.length) maps = [origin + '/sitemap.xml', origin + '/sitemap_index.xml'];
+  const prodRe = /product|urun|item|pdp|\/p[-_]|-p-/i;
+  const skipRe = /blog|news|haber|brand|marka|store|magaza|image|video|static|page|cms|campaign|kampanya/i;
+  let urls = [];
+  for (const m of maps.slice(0, 6)) {
+    const xml = await fetchText(ctx, page, m);
+    if (!xml) continue;
+    let list = locs(xml);
+    if (/<sitemapindex/i.test(xml)) {
+      const file = (u) => { try { return new URL(u).pathname.split('/').pop(); } catch { return u; } };
+      const isProd = (u) => prodRe.test(file(u)) && !skipRe.test(file(u));
+      const child = list.find(isProd) || list.find((c) => /categor|kategori/i.test(file(c))) || null;
+      trail.push(m.replace(origin, '') + ' (index, ' + list.length + ' sitemaps)');
+      if (!child) continue;
+      const cx = await fetchText(ctx, page, child);
+      list = locs(cx);
+      trail.push(child.replace(origin, '') + ' (' + list.length + ' URLs)');
+    } else trail.push(m.replace(origin, '') + ' (' + list.length + ' URLs)');
+    if (list.length) { urls = list; break; }
+  }
+  notes.push('Sitemap: ' + trail.join(' → '));
+  urls = urls.filter((u) => { try { return new URL(u).hostname.replace(/^www\./, '') === new URL(origin).hostname.replace(/^www\./, ''); } catch { return false; } }).slice(0, 500);
+  if (!urls.length) return [];
+  const pick = [urls[0], urls[Math.floor(urls.length / 2)], urls[urls.length - 1]];
+  return pick.filter((u, i) => pick.indexOf(u) === i);
+}
+
+// Is the current page a product detail page? (dataLayer view_item, schema.org Product, add-to-cart button)
+async function productSignals(page) {
+  return page.evaluate((atcSrc) => {
+    const why = [];
+    const dl = Array.isArray(window.dataLayer) ? window.dataLayer : [];
+    if (dl.some((x) => x && (x.event === 'view_item' || x.event === 'productDetail' || (x.ecommerce && (x.ecommerce.detail || x.event === 'view_item'))))) why.push('dataLayer view_item');
+    const ld = Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map((s) => s.textContent).join(' ');
+    if (/"@type"\s*:\s*"Product"/i.test(ld) || document.querySelector('[itemtype*="schema.org/Product"]')) why.push('schema.org Product');
+    const re = new RegExp(atcSrc, 'i');
+    if (Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]')).some((b) => re.test((b.innerText || b.value || '').trim()))) why.push('add-to-cart button');
+    return { ok: why.length > 0, why };
+  }, ATC_TXT.source).catch(() => ({ ok: false, why: [] }));
+}
+
+// Selects the first available size/colour variant (if any) before adding to cart.
+async function selectVariant(page) {
+  const sels = ['[class*="size" i] button:not([disabled]):not([class*="disabled" i])', '[class*="beden" i] button:not([disabled]):not([class*="disabled" i])', '[class*="variant" i] button:not([disabled]):not([class*="disabled" i])', '[class*="size" i] li:not([class*="disabled" i]) a', '[class*="beden" i] li:not([class*="disabled" i])', '[class*="variant" i] [class*="item" i]:not([class*="disabled" i])'];
+  for (const sel of sels) {
+    try { const l = page.locator(sel).first(); if (await l.isVisible({ timeout: 300 })) { await l.click({ timeout: 3000 }); await page.waitForTimeout(800); return sel; } } catch { /* next */ }
+  }
+  try {
+    const sel = page.locator('select').first();
+    if (await sel.isVisible({ timeout: 300 })) {
+      const v = await sel.evaluate((s) => { const o = Array.from(s.options).find((x) => x.value && !x.disabled && x.index > 0); return o ? o.value : null; });
+      if (v) { await sel.selectOption(v); return 'select=' + v; }
+    }
+  } catch { /* none */ }
   return null;
 }
 
@@ -186,54 +265,75 @@ async function main() {
   await page.waitForTimeout(1500);
   dlPages.push(await snapshotDL(page));
 
-  // Product page
+  // ---------------- Funnel: product → variant → add to cart → cart → checkout (no payment)
+  const origin = new URL(page.url() || url).origin;
   let productUrl = extra[0];
-  if (!productUrl) {
-    const origin = new URL(page.url() || url).origin;
+  let onProduct = false;
+  const visit = async (u, label) => {
+    await page.goto(u, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await settle(page, 3500);
+    await scrollPage(page);
+    capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => ''), step: label });
+    dlPages.push(await snapshotDL(page));
+  };
+  if (productUrl) {
+    try { await visit(productUrl, 'product (given)'); onProduct = (await productSignals(page)).ok; } catch (e) { notes.push('Product page failed to load: ' + e.message.split('\n')[0]); }
+  }
+  // 1) Sitemap
+  if (!onProduct) {
+    const sm = await sitemapCandidates(ctxA, page, origin, notes);
+    for (const [i, cand] of sm.entries()) {
+      try {
+        await visit(cand, 'product (sitemap)');
+        const sig = await productSignals(page);
+        notes.push('Candidate ' + (i + 1) + ': ' + new URL(cand).pathname + ' → ' + (sig.ok ? 'product page ✓ (' + sig.why.join(', ') + ')' : 'not a product page'));
+        if (sig.ok) { productUrl = cand; onProduct = true; break; }
+      } catch (e) { notes.push('Candidate ' + (i + 1) + ' failed to load: ' + e.message.split('\n')[0]); }
+    }
+  }
+  // 2) Links on the home page, then deeper category pages
+  if (!onProduct) {
+    try { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }); await settle(page, 2500); } catch { /* */ }
     productUrl = await findProduct(page, origin);
     if (!productUrl) {
-      // Fallback: open a category/listing page from the navigation and look for products there
       const cats = await page.evaluate((origin) => Array.from(document.querySelectorAll('nav a[href], header a[href], a[href]'))
         .map((a) => a.href).filter((h) => h.startsWith(origin) && new URL(h).pathname.length > 1 && !/(login|giris|uye|account|hesap|sepet|cart|blog|iletisim|contact|yardim|help|sss|faq|magaza|store-locator|kvkk|privacy|gizlilik|cookie|cerez)/i.test(h))
         .filter((h, i, arr) => arr.indexOf(h) === i).slice(0, 150), origin).catch(() => []);
       const score = (h) => { const p = new URL(h).pathname.replace(/\/$/, ''); const last = p.split('/').pop(); return (/-/.test(last) ? 2 : 0) + (p.split('/').length > 2 ? 1 : 0) - (/\d{4,}/.test(p) ? 3 : 0); };
-      cats.sort((a, b) => score(b) - score(a));
+      cats.sort((x, y) => score(y) - score(x));
       for (const c of cats.slice(0, 4)) {
-        try {
-          await page.goto(c, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          await settle(page, 2500);
-          await scrollPage(page);
-          dlPages.push(await snapshotDL(page));
-          capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => '') });
-          productUrl = await findProduct(page, origin);
-          if (productUrl) { notes.push('Listing page visited: ' + c); break; }
-        } catch { /* next */ }
+        try { await visit(c, 'listing'); productUrl = await findProduct(page, origin); if (productUrl) { notes.push('Listing page visited: ' + c); break; } } catch { /* next */ }
       }
     }
-    if (productUrl) notes.push('Product page auto-selected: ' + productUrl);
+    if (productUrl) {
+      try { await visit(productUrl, 'product (links)'); onProduct = (await productSignals(page)).ok; notes.push('Product page from links: ' + productUrl + (onProduct ? ' ✓' : ' (no product signals)')); } catch (e) { notes.push('Product page failed to load: ' + e.message.split('\n')[0]); }
+    }
   }
-  if (productUrl) {
+  if (onProduct) {
+    const v = await selectVariant(page);
+    if (v) notes.push('Variant selected: ' + v);
+    const atc = await findAndClick(page, ['[data-testid*="add-to-cart" i]', '[data-testid*="addToBasket" i]', 'button[name="add"]', '#add-to-cart', '.add-to-cart', 'button.add_to_cart_button', '#addToCart', '[class*="addToCart" i]', '[class*="add-to-basket" i]', '[class*="add-to-bs" i]', '[class*="sepete" i]'], ATC_TXT);
+    if (atc) { notes.push('Add-to-cart clicked: ' + atc); await page.waitForTimeout(5000); }
+    else notes.push('No "Add to cart" button found on the product page.');
+    dlPages.push(await snapshotDL(page));
+    // Cart
+    let cartUrl = extra[1];
+    if (!cartUrl) cartUrl = await page.evaluate((origin) => { const a = Array.from(document.querySelectorAll('a[href]')).find((x) => x.href.startsWith(origin) && /\/(sepet|sepetim|cart|basket|bag)(\/|\?|$)/i.test(new URL(x.href).pathname)); return a ? a.href : null; }, origin).catch(() => null);
+    if (!cartUrl) cartUrl = origin + '/sepet';
     try {
-      await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-      await settle(page, 4000);
-      await scrollPage(page);
-      capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => '') });
-      const atc = await findAndClick(page, ['[data-testid*="add-to-cart" i]', 'button[name="add"]', '#add-to-cart', '.add-to-cart', 'button.add_to_cart_button', '#addToCart', '[class*="addToCart" i]', '[class*="add-to-basket" i]', '[class*="sepete" i]'], ATC_TXT);
-      if (atc) { notes.push('Add-to-cart clicked: ' + atc); await page.waitForTimeout(5000); }
-      else notes.push('No "Add to cart" button found on the product page (a variant may need to be selected).');
-      dlPages.push(await snapshotDL(page));
-    } catch (e) { notes.push('Product page failed to load: ' + e.message.split('\n')[0]); }
-  } else notes.push('No product page found; the funnel was audited from the home page only. Enter a product URL or use HAR mode for fuller results.');
-
-  for (const [i, u] of [[1, extra[1]], [2, extra[2]]]) {
-    if (!u) continue;
-    try {
-      await page.goto(u, { waitUntil: 'domcontentloaded', timeout: 45000 });
-      await settle(page, 4000);
-      capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => '') });
-      dlPages.push(await snapshotDL(page));
-    } catch (e) { notes.push((i === 1 ? 'Cart' : 'Checkout') + ' page failed to load: ' + e.message.split('\n')[0]); }
-  }
+      await visit(cartUrl, 'cart');
+      notes.push('Cart page visited: ' + page.url());
+      // Checkout (never pays, never fills forms)
+      const co = await findAndClick(page, ['[data-testid*="checkout" i]', 'a[href*="checkout" i]', 'a[href*="odeme" i]'], CHECKOUT_TXT);
+      if (co) {
+        await settle(page, 4000);
+        capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => ''), step: 'checkout' });
+        dlPages.push(await snapshotDL(page));
+        notes.push('Checkout button clicked: ' + co + ' → ' + page.url() + (/login|giris|uye|signin/i.test(page.url()) ? ' (login required — stopped here)' : ''));
+      } else notes.push('No checkout button found on the cart page.');
+    } catch (e) { notes.push('Cart page failed to load: ' + e.message.split('\n')[0]); }
+  } else notes.push('No product page found (sitemap, links and category pages tried); the funnel was audited from the home page only. Enter a product URL or use HAR mode.');
+  if (extra[2]) { try { await visit(extra[2], 'checkout (given)'); } catch (e) { notes.push('Checkout page failed to load: ' + e.message.split('\n')[0]); } }
   const accCookies = (await ctxA.cookies()).map((c) => ({ name: c.name, domain: c.domain }));
   capture.phases.pre_consent = { requests: A.requests.filter((r) => r.phase === 'pre_consent'), cookies: preCookies };
   capture.phases.accepted = { requests: A.requests.filter((r) => r.phase === 'accepted'), cookies: accCookies };

@@ -8,6 +8,7 @@ on:
       sector: { description: "ecommerce / leadgen / subscription", default: "ecommerce" }
       currency: { description: "Currency", default: "TRY" }
       product_url: { description: "Product URL (optional)", required: false }
+      save: { description: "Save report publicly to the reports branch (yes/no)", default: "yes" }
 permissions:
   contents: write
   issues: write
@@ -51,6 +52,7 @@ jobs:
         working-directory: scanner
         run: node report.mjs --in out/capture.json --outdir out --id "${{ steps.req.outputs.id }}" --site "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
       - name: Save report to the reports branch
+        if: github.event_name == 'issues' || github.event.inputs.save != 'no'
         env:
           ID: ${{ steps.req.outputs.id }}
           URL: ${{ steps.req.outputs.url }}
@@ -68,6 +70,13 @@ jobs:
           node scanner/update-index.mjs ../rep/reports/index.json "$ID" "$URL" scanner/out/capture.json
           cd ../rep && git add reports && git commit -m "Audit report $ID" && \
           for i in 1 2 3; do git push origin reports && break || (git pull --rebase origin reports; sleep 3); done
+      - name: Private result (artifact, 1 day)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.save == 'no'
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-${{ steps.req.outputs.id }}
+          path: scanner/out/
+          retention-days: 1
       - name: Comment the result
         if: github.event_name == 'issues'
         env:

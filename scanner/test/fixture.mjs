@@ -86,6 +86,12 @@ const PRODUCT = page('Wool Sweater', `<h1>Wool Sweater</h1><p>3,995 TRY</p><butt
 export default async function handler(route) {
   const url = new URL(route.request().url());
   if (url.hostname === SITE) {
+    const o = 'https://' + SITE;
+    if (url.pathname === '/robots.txt') return route.fulfill({ status: 200, contentType: 'text/plain', body: 'User-agent: *\nDisallow: /cart\nSitemap: ' + o + '/sitemap_index.xml\n' });
+    if (url.pathname === '/sitemap_index.xml') return route.fulfill({ status: 200, contentType: 'application/xml', body: '<?xml version="1.0"?><sitemapindex><sitemap><loc>' + o + '/sitemap-blog.xml</loc></sitemap><sitemap><loc>' + o + '/sitemap-products-1.xml</loc></sitemap></sitemapindex>' });
+    if (url.pathname === '/sitemap-products-1.xml') return route.fulfill({ status: 200, contentType: 'application/xml', body: '<?xml version="1.0"?><urlset>' + ['wool-sweater-164592', 'linen-shirt-164593', 'denim-jeans-164594', 'oversize-tee-164595'].map((x) => '<url><loc>' + o + '/product/' + x + '</loc></url>').join('') + '</urlset>' });
+    if (url.pathname === '/cart') return route.fulfill({ status: 200, contentType: 'text/html', body: page('Cart', '<h1>Your cart</h1><button onclick="dataLayer.push({event:\'begin_checkout\',ecommerce:{currency:\'TRY\',value:3995,items:[{item_id:\'164592\',item_name:\'Wool Sweater\',price:3995,quantity:1}]}});ga4(\'begin_checkout\',{currency:\'TRY\',value:3995},[{item_id:\'164592\',item_name:\'Wool Sweater\',price:3995,quantity:1}]);fbq(\'InitiateCheckout\',{value:3995,currency:\'TRY\',num_items:1});location.href=\'/login?return=checkout\'">Proceed to checkout</button>', 'cart') });
+    if (url.pathname === '/login') return route.fulfill({ status: 200, contentType: 'text/html', body: page('Login', '<h1>Sign in</h1>', 'login') });
     const body = url.pathname.startsWith('/product/') ? PRODUCT : HOME;
     return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body });
   }
