@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Analytics Audit</title>
+<meta name="description" content="Sitenizin GA4, Google Ads, Meta, TikTok, LinkedIn, X, DataLayer, sGTM ve CMP/Consent kurulumunu denetleyin; platform bazlı hata tabloları, doğru çalışan kontroller ve Excel raporu alın.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231f3a5f'/><path d='M8 22l5-7 4 4 7-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="./"><span class="logo-mark">✓</span>Web Analytics Audit</a>
+    <nav>
+      <a href="#start">Denetle</a>
+      <a href="#methodology">Neler kontrol ediliyor?</a>
+      <a href="#how">Nasıl çalışır?</a>
+      <a id="repoLink" href="#" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <h1>Sitenizin tracking kurulumunu tek raporda denetleyin</h1>
+    <p>GA4, Google Ads, Meta, TikTok, LinkedIn ve X kurulumunuzu; DataLayer, sGTM / Tag Gateway altyapısını ve çerez onayı (CMP, "Reddet" davranışı, Consent Mode v2) kontrollerini aynı standartta denetler. Her platform için <b>bileşen durumu</b>, <b>event bazlı hata tablosu</b>, <b>doğru çalışan kontroller</b> ve <b>tüm kontrol listesi</b> çıkarır; raporu Excel olarak indirebilirsiniz.</p>
+    <div class="pills"><span class="pill">GA4 e-commerce şeması</span><span class="pill">Google Ads + Enhanced Conversions</span><span class="pill">Meta Pixel / CAPI dedup</span><span class="pill">TikTok · LinkedIn · X</span><span class="pill">PII / KVKK</span><span class="pill">CMP "Reddet" testi</span><span class="pill">Consent Mode v2</span></div>
+  </section>
+
+  <section id="start" class="card">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-tab="live">① Canlı tarama (URL)</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="har">② HAR ile derin denetim</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="open">③ Rapor aç</button>
+    </div>
+
+    <!-- Canlı tarama -->
+    <div class="panel" data-panel="live">
+      <form id="liveForm">
+        <div class="grid3">
+          <div class="field"><label for="lUrl">Site URL'si</label><input id="lUrl" type="url" placeholder="https://www.ornekmagaza.com" required></div>
+          <div class="field"><label for="lSector">İş modeli</label><select id="lSector"><option value="ecommerce">E-ticaret</option><option value="leadgen">Lead-gen / CRM'li satış</option><option value="subscription">Abonelik</option></select></div>
+          <div class="field"><label for="lCur">Para birimi</label><input id="lCur" type="text" value="TRY" maxlength="3"></div>
+        </div>
+        <div class="grid3">
+          <div class="field"><label for="lProduct">Ürün sayfası URL'si <small>(opsiyonel — boşsa otomatik bulunur)</small></label><input id="lProduct" type="url" placeholder="https://…/urun/…"></div>
+          <div class="field"><label for="lCart">Sepet URL'si <small>(opsiyonel)</small></label><input id="lCart" type="url" placeholder="https://…/sepet"></div>
+          <div class="field"><label for="lCheckout">Checkout URL'si <small>(opsiyonel)</small></label><input id="lCheckout" type="url"></div>
+        </div>
+        <div class="row" style="justify-content:space-between;align-items:flex-start">
+          <ol class="steps">
+            <li>Butona basınca GitHub'da önceden doldurulmuş bir <b>denetim talebi</b> açılır → <b>Submit</b>'e basın.</li>
+            <li>GitHub Actions gerçek bir Chromium ile siteyi 3 senaryoda gezer: <i>onay öncesi</i>, <i>"Kabul et" + ürün/sepet</i>, <i>"Reddet"</i>.</li>
+            <li>~2–4 dakika sonra talebe rapor linki yorum olarak eklenir (e-posta bildirimi gelir).</li>
+          </ol>
+          <button class="btn" type="submit">Taramayı başlat →</button>
+        </div>
+        <p class="note" style="margin-top:14px"><b>Not:</b> Talepler herkese açık bir GitHub deposunda işlenir ve GitHub hesabı gerektirir. Otomatik tarama checkout/purchase adımına giremez; satın alma dahil tam funnel için <b>② HAR ile derin denetim</b> sekmesini kullanın.</p>
+      </form>
+    </div>
+
+    <!-- HAR -->
+    <div class="panel" data-panel="har" hidden>
+      <div class="grid2">
+        <div>
+          <ol class="steps">
+            <li>Chrome'da sitenizi açın, <b>DevTools → Network</b> sekmesinde <b>Preserve log</b>'u işaretleyin.</li>
+            <li>Funnel'ı gezin: kategori → ürün → sepete ekle → checkout → (mümkünse) satın alma.</li>
+            <li>Network listesine sağ tıklayın → <b>Save all as HAR</b> (çerez kontrolü için "with sensitive data" seçeneği önerilir).</li>
+            <li>Opsiyonel: yeni gizli pencerede banner'da <b>Reddet</b>'e basıp birkaç sayfa gezin ve bunu ayrı HAR olarak kaydedin.</li>
+            <li>Opsiyonel: her funnel adımında konsolda aşağıdaki kodu çalıştırıp dataLayer çıktılarını yapıştırın.</li>
+          </ol>
+          <div class="snippet field">
+            <pre id="dlSnippet">copy(JSON.stringify(dataLayer.map(x=>Object.prototype.toString.call(x)==='[object Arguments]'?Object.assign({__args:true},Array.from(x)):x),(k,v)=>v instanceof Node?'[DOM]':typeof v==='function'?'[fn]':v))</pre>
+            <button class="btn secondary small" type="button" id="copySnippet">Kopyala</button>
+          </div>
+          <p class="note"><b>Gizlilik:</b> HAR dosyaları yalnızca tarayıcınızda analiz edilir; hiçbir sunucuya gönderilmez.</p>
+        </div>
+        <form id="harForm">
+          <div class="field"><label>Funnel HAR dosyası <small>(onay verilmiş oturum)</small></label>
+            <div class="drop" id="dropMain" tabindex="0"><strong>HAR dosyasını sürükleyin</strong> veya tıklayın<div class="fname"></div><input type="file" accept=".har,.json,application/json" hidden></div></div>
+          <div class="field"><label>"Reddet" sonrası HAR <small>(opsiyonel — CMP testi)</small></label>
+            <div class="drop" id="dropReject" tabindex="0"><strong>Reddet sonrası HAR</strong> (opsiyonel)<div class="fname"></div><input type="file" accept=".har,.json,application/json" hidden></div></div>
+          <div class="field"><label for="hDl">dataLayer JSON <small>(opsiyonel — birden fazla çıktıyı alt alta yapıştırabilirsiniz)</small></label><textarea id="hDl" placeholder='[{"event":"gtm.js"}, …]'></textarea></div>
+          <div class="grid3">
+            <div class="field"><label for="hUrl">Site URL'si <small>(HAR'dan otomatik)</small></label><input id="hUrl" type="url"></div>
+            <div class="field"><label for="hSector">İş modeli</label><select id="hSector"><option value="ecommerce">E-ticaret</option><option value="leadgen">Lead-gen</option><option value="subscription">Abonelik</option></select></div>
+            <div class="field"><label for="hCur">Para birimi</label><input id="hCur" type="text" value="TRY" maxlength="3"></div>
+          </div>
+          <button class="btn" type="submit" id="harBtn">Denetle</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Rapor aç -->
+    <div class="panel" data-panel="open" hidden>
+      <form id="openForm" class="row">
+        <input id="oId" type="text" placeholder="Rapor ID (ör. 12)" style="max-width:260px">
+        <button class="btn" type="submit">Raporu aç</button>
+        <button class="btn secondary" type="button" id="demoBtn">Örnek raporu gör</button>
+      </form>
+      <p class="hint">Rapor ID, GitHub'daki denetim talebinin numarasıdır. Örnek rapor, kasıtlı hatalar içeren sentetik bir test mağazasının (demo-magaza.test) canlı tarama çıktısıdır.</p>
+      <h4 style="margin:18px 0 0">Son denetimler</h4>
+      <ul class="recent" id="recent"><li class="hint">Yükleniyor…</li></ul>
+    </div>
+  </section>
+
+  <section id="report" hidden></section>
+
+  <section id="methodology" class="section" style="margin-top:44px">
+    <h3 style="font-size:22px">Neler kontrol ediliyor?</h3>
+    <p class="hint" style="margin-top:-4px">Her kontrol raporda <span class="st st-pass">Doğru</span>, <span class="st st-fail">Hatalı</span>, <span class="st st-warn">Kısmen</span> veya <span class="st st-na">Kontrol edilemedi</span> olarak; gözlenen ve olması gereken değerle birlikte listelenir. Önem: <span class="sev sev1">1</span> Kritik · <span class="sev sev2">2</span> Yüksek/Orta · <span class="sev sev3">3</span> Düşük.</p>
+    <div class="catalog" id="catalog"></div>
+  </section>
+
+  <section id="how" class="section" style="margin-top:36px">
+    <h3 style="font-size:22px">Nasıl çalışır?</h3>
+    <div class="how">
+      <div class="card"><b>Network + dataLayer okuması</b><p>GA4 <code>/g/collect</code>, Google Ads <code>/pagead/…</code>, Meta <code>/tr</code>, TikTok <code>/api/v2/pixel</code>, LinkedIn ve X istekleri hit bazında çözülür; her hit ayrı incelenir.</p></div>
+      <div class="card"><b>Resmi şemalarla karşılaştırma</b><p>Her platformun resmi dokümantasyonundaki zorunlu/önerilen parametreler, veri tipleri ve formatlar kontrol edilir.</p></div>
+      <div class="card"><b>Consent senaryoları</b><p>Onay öncesi, kabul sonrası ve reddet sonrası ateşlenen istekler, çerezler ve <code>gcs/gcd</code> sinyalleri ayrı ayrı test edilir.</p></div>
+      <div class="card"><b>Dürüst sınırlar</b><p>Sunucu tarafı (CAPI, Events API) tarayıcıdan görülemez; bu kontroller uydurulmaz, "Kontrol edilemedi" olarak işaretlenir.</p></div>
+    </div>
+  </section>
+</main>
+
+<footer><div class="wrap">Web Analytics Audit · Açık kaynak · Rapor bulguları otomatik analizdir; kritik kararlar öncesi GTM Preview / Tag Assistant / Events Manager ile doğrulayın.</div></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js" defer></script>
+<script src="assets/engine.js"></script>
+<script src="assets/excel.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

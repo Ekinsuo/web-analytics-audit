@@ -1,0 +1,40 @@
+name: Tracking QA denetimi
+description: Bir sitenin web analytics / tracking kurulumunu otomatik denetle
+title: "[Audit] "
+labels: ["audit"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bu talep gönderildiğinde GitHub Actions siteyi gerçek bir tarayıcıyla tarar ve rapor linkini bu talebe yorum olarak ekler (~2–4 dk).
+        **Talepler herkese açıktır.** Yalnızca denetleme yetkiniz olan siteleri girin.
+  - type: input
+    id: url
+    attributes:
+      label: Site URL
+      placeholder: https://www.ornekmagaza.com
+    validations:
+      required: true
+  - type: input
+    id: sector
+    attributes:
+      label: İş modeli
+      description: ecommerce, leadgen veya subscription
+      value: ecommerce
+  - type: input
+    id: currency
+    attributes:
+      label: Para birimi
+      value: TRY
+  - type: input
+    id: product_url
+    attributes:
+      label: Ürün sayfası URL (opsiyonel)
+  - type: input
+    id: cart_url
+    attributes:
+      label: Sepet URL (opsiyonel)
+  - type: input
+    id: checkout_url
+    attributes:
+      label: Checkout URL (opsiyonel)

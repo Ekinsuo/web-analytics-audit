@@ -1,0 +1,84 @@
+name: Tracking QA audit
+on:
+  issues:
+    types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      url: { description: "Site URL", required: true }
+      sector: { description: "ecommerce / leadgen / subscription", default: "ecommerce" }
+      currency: { description: "Para birimi", default: "TRY" }
+      product_url: { description: "Ürün URL (opsiyonel)", required: false }
+permissions:
+  contents: write
+  issues: write
+concurrency:
+  group: audit-${{ github.event.issue.number || github.run_id }}
+jobs:
+  audit:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.issue.labels.*.name, 'audit') || startsWith(github.event.issue.title, '[Audit]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Talebi oku
+        id: req
+        env:
+          BODY: ${{ github.event.issue.body }}
+          IN_URL: ${{ github.event.inputs.url }}
+          IN_SECTOR: ${{ github.event.inputs.sector }}
+          IN_CUR: ${{ github.event.inputs.currency }}
+          IN_PRODUCT: ${{ github.event.inputs.product_url }}
+          ISSUE: ${{ github.event.issue.number }}
+          RUN: ${{ github.run_id }}
+        run: node scanner/parse-request.mjs >> "$GITHUB_OUTPUT"
+      - name: Bağımlılıklar
+        working-directory: scanner
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Tarama
+        working-directory: scanner
+        run: |
+          node scan.mjs --url "${{ steps.req.outputs.url }}" --sector "${{ steps.req.outputs.sector }}" --currency "${{ steps.req.outputs.currency }}" \
+            ${{ steps.req.outputs.product && format('--product "{0}"', steps.req.outputs.product) || '' }} \
+            ${{ steps.req.outputs.cart && format('--cart "{0}"', steps.req.outputs.cart) || '' }} \
+            ${{ steps.req.outputs.checkout && format('--checkout "{0}"', steps.req.outputs.checkout) || '' }} \
+            --out out/capture.json
+      - name: Rapor
+        working-directory: scanner
+        run: node report.mjs --in out/capture.json --outdir out --id "${{ steps.req.outputs.id }}" --site "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+      - name: Raporu reports dalına kaydet
+        env:
+          ID: ${{ steps.req.outputs.id }}
+          URL: ${{ steps.req.outputs.url }}
+        run: |
+          git config user.name "audit-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code origin reports >/dev/null; then
+            git fetch origin reports && git worktree add ../rep reports
+          else
+            git worktree add --orphan -b reports ../rep
+          fi
+          mkdir -p ../rep/reports
+          cp scanner/out/capture.json "../rep/reports/$ID.json"
+          cp scanner/out/$ID.xlsx "../rep/reports/$ID.xlsx"
+          node scanner/update-index.mjs ../rep/reports/index.json "$ID" "$URL" scanner/out/capture.json
+          cd ../rep && git add reports && git commit -m "Audit report $ID" && \
+          for i in 1 2 3; do git push origin reports && break || (git pull --rebase origin reports; sleep 3); done
+      - name: Sonucu yorumla
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} --body-file "scanner/out/${{ steps.req.outputs.id }}.summary.md"
+          gh issue close ${{ github.event.issue.number }}
+      - name: Hata bildir
+        if: failure() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MSG=$(cat scanner/out/capture.json.error 2>/dev/null || echo "Ayrıntılar için Actions loguna bakın.")
+          gh issue comment ${{ github.event.issue.number }} --body "❌ Tarama başarısız oldu: $MSG — Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
