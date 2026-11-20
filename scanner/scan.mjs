@@ -75,6 +75,19 @@ async function findAndClick(page, selectors, textRe) {
   return null;
 }
 
+// Finds a product detail link on the current page: product-card containers first, then URL patterns.
+async function findProduct(page, origin) {
+  return page.evaluate(([origin, src]) => {
+    const re = new RegExp(src, 'i');
+    const here = location.pathname;
+    const ok = (h) => { try { const u = new URL(h); return u.origin === origin && u.pathname !== here && u.pathname.length > 1 && !/(login|giris|uye|account|hesap|sepet|cart|blog|kampanya|iletisim|contact|yardim|help|sss|faq)/i.test(h); } catch { return false; } };
+    const inCards = Array.from(document.querySelectorAll('[class*="product" i] a[href], [class*="urun" i] a[href], [data-product-id] a[href], [data-sku] a[href], [itemtype*="Product"] a[href]')).map((a) => a.href).filter(ok);
+    const byPattern = Array.from(document.querySelectorAll('a[href]')).map((a) => a.href).filter((h) => ok(h) && re.test(new URL(h).pathname));
+    const pick = (l) => l[Math.floor(l.length / 3)] || l[0] || null;
+    return pick(byPattern) || pick(inCards.filter((h) => /\d{4,}|-p-|\/p\//.test(h))) || pick(inCards);
+  }, [origin, PRODUCT_HREF.source]).catch(() => null);
+}
+
 async function bannerInfo(page) {
   return page.evaluate(() => {
     const re = /(çerez|cookie|kvkk|gdpr|consent|gizlilik)/i;
@@ -177,28 +190,22 @@ async function main() {
   let productUrl = extra[0];
   if (!productUrl) {
     const origin = new URL(page.url() || url).origin;
-    productUrl = await page.evaluate(([origin, src]) => {
-      const re = new RegExp(src, 'i');
-      const links = Array.from(document.querySelectorAll('a[href]')).map((a) => a.href).filter((h) => h.startsWith(origin) && re.test(new URL(h).pathname) && !/(login|giris|uye|account|hesap|sepet|cart|blog|kampanya|iletisim|contact|yardim|help|sss|faq)/i.test(h));
-      return links[Math.floor(links.length / 3)] || links[0] || null;
-    }, [origin, PRODUCT_HREF.source]).catch(() => null);
+    productUrl = await findProduct(page, origin);
     if (!productUrl) {
       // Fallback: open a category/listing page from the navigation and look for products there
       const cats = await page.evaluate((origin) => Array.from(document.querySelectorAll('nav a[href], header a[href], a[href]'))
         .map((a) => a.href).filter((h) => h.startsWith(origin) && new URL(h).pathname.length > 1 && !/(login|giris|uye|account|hesap|sepet|cart|blog|iletisim|contact|yardim|help|sss|faq|magaza|store-locator|kvkk|privacy|gizlilik|cookie|cerez)/i.test(h))
-        .filter((h, i, arr) => arr.indexOf(h) === i).slice(0, 40), origin).catch(() => []);
-      for (const c of cats.slice(0, 3)) {
+        .filter((h, i, arr) => arr.indexOf(h) === i).slice(0, 150), origin).catch(() => []);
+      const score = (h) => { const p = new URL(h).pathname.replace(/\/$/, ''); const last = p.split('/').pop(); return (/-/.test(last) ? 2 : 0) + (p.split('/').length > 2 ? 1 : 0) - (/\d{4,}/.test(p) ? 3 : 0); };
+      cats.sort((a, b) => score(b) - score(a));
+      for (const c of cats.slice(0, 4)) {
         try {
           await page.goto(c, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await settle(page, 2500);
           await scrollPage(page);
           dlPages.push(await snapshotDL(page));
           capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => '') });
-          productUrl = await page.evaluate(([origin, src]) => {
-            const re = new RegExp(src, 'i');
-            const links = Array.from(document.querySelectorAll('a[href]')).map((a) => a.href).filter((h) => h.startsWith(origin) && re.test(new URL(h).pathname));
-            return links[Math.floor(links.length / 3)] || links[0] || null;
-          }, [origin, PRODUCT_HREF.source]).catch(() => null);
+          productUrl = await findProduct(page, origin);
           if (productUrl) { notes.push('Listing page visited: ' + c); break; }
         } catch { /* next */ }
       }
