@@ -112,7 +112,7 @@ td.ev { font-weight: 700; background: var(--surface-2); white-space: nowrap; }
 .band > .bandlabel.green { background: var(--green); }
 .band .tblwrap { border-radius: 0 10px 10px 0; border-left: 0; }
 .st { font-weight: 700; white-space: nowrap; }
-.st-Mevcut, .st-pass { color: var(--green); } .st-Hatalı, .st-Yok, .st-fail { color: var(--red); } .st-Kısmen, .st-warn { color: var(--amber); } .st-Doğrulanamadı, .st-na { color: var(--grey); }
+.st-Present, .st-pass { color: var(--green); } .st-Faulty, .st-Missing, .st-fail { color: var(--red); } .st-Partial, .st-warn { color: var(--amber); } .st-Unverified, .st-na { color: var(--grey); }
 .sev { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-weight: 800; font-size: 12px; }
 .sev1 { background: var(--red); color: #fff; } .sev2 { background: var(--amber-bg); color: var(--amber); } .sev3 { background: var(--grey-bg); color: var(--grey); }
 .bad { color: var(--red); } .good { color: var(--green); }

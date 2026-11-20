@@ -2,10 +2,10 @@
   "name": "web-analytics-audit-scanner",
   "private": true,
   "type": "module",
-  "description": "GitHub Actions üzerinde canlı tracking QA taraması",
+  "description": "Live tracking QA scanner running on GitHub Actions",
   "scripts": {
     "scan": "node scan.mjs",
-    "test": "AUDIT_MOCK=./test/fixture.mjs node scan.mjs --url https://demo-magaza.test --currency TRY --out test/out/capture.json && node report.mjs --in test/out/capture.json --outdir test/out"
+    "test": "AUDIT_MOCK=./test/fixture.mjs node scan.mjs --url https://demo-store.test --currency TRY --out test/out/capture.json && node report.mjs --in test/out/capture.json --outdir test/out"
   },
   "dependencies": {
     "exceljs": "4.4.0",

@@ -1,4 +1,4 @@
-// capture.json → denetim sonucu (JSON) + stillenmiş Excel + issue yorumu (markdown)
+// capture.json → audit result + styled Excel + issue comment (markdown)
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -21,16 +21,16 @@ await wb.xlsx.writeFile(path.join(outdir, id + '.xlsx'));
 const crit = [];
 R.platforms.forEach((p) => p.checks.filter((c) => c.status === 'fail' && c.severity === 1).forEach((c) => crit.push(`| ${p.name} | ${c.event} | ${c.title.replace(/\|/g, '/')} | ${String(c.observed).replace(/\|/g, '/').slice(0, 140)} |`)));
 const plat = R.platforms.map((p) => `| ${p.name} | ${p.counts.pass} | ${p.counts.fail} | ${p.counts.warn} | ${p.counts.na} |`).join('\n');
-const md = `## Tracking QA denetimi tamamlandı — ${R.meta.url}
+const md = `## Tracking QA audit complete — ${R.meta.url}
 
-**Skor: ${R.score}/100** · ${R.totals.pass} doğru · ${R.totals.fail} hatalı (${R.totals.critical} kritik) · ${R.totals.warn} kısmen · ${R.totals.na} kontrol edilemedi
+**Score: ${R.score}/100** · ${R.totals.pass} pass · ${R.totals.fail} fail (${R.totals.critical} critical) · ${R.totals.warn} partial · ${R.totals.na} not verifiable
 
-${siteBase ? `👉 **Raporun tamamı:** ${siteBase}?id=${id}\n\n📥 **Excel:** ${siteBase}reports/${id}.xlsx (rapor sayfasındaki “Excel indir” butonu da kullanılabilir)\n` : ''}
-| Platform | Doğru | Hatalı | Kısmen | Kontrol edilemedi |
+${siteBase ? `👉 **Full report:** ${siteBase}?id=${id}\n\n📥 **Excel:** ${process.env.GITHUB_REPOSITORY ? `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/reports/reports/${id}.xlsx` : id + '.xlsx'} (or use the “Download Excel report” button on the report page)\n` : ''}
+| Platform | Pass | Fail | Partial | Not verifiable |
 |---|---|---|---|---|
 ${plat}
 
-${crit.length ? `### Kritik (önem 1) bulgular\n| Platform | Event | Kontrol | Gözlenen |\n|---|---|---|---|\n${crit.slice(0, 15).join('\n')}\n` : '✅ Kritik bulgu yok.'}
-${R.meta.notes.length ? `\n<details><summary>Tarama notları</summary>\n\n${R.meta.notes.map((n) => '- ' + n).join('\n')}\n</details>\n` : ''}`;
+${crit.length ? `### Critical (severity 1) findings\n| Platform | Event | Check | Observed |\n|---|---|---|---|\n${crit.slice(0, 15).join('\n')}\n` : '✅ No critical findings.'}
+${R.meta.notes.length ? `\n<details><summary>Scan notes</summary>\n\n${R.meta.notes.map((n) => '- ' + n).join('\n')}\n</details>\n` : ''}`;
 fs.writeFileSync(path.join(outdir, id + '.summary.md'), md);
-console.log(`Skor ${R.score}/100 · ${R.totals.fail} hatalı · ${R.totals.critical} kritik → ${outdir}/${id}.xlsx`);
+console.log(`Score ${R.score}/100 · ${R.totals.fail} fail · ${R.totals.critical} critical → ${outdir}/${id}.xlsx`);

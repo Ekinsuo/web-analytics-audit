@@ -2,41 +2,41 @@
 
 **Site:** https://ekinsuo.github.io/web-analytics-audit/
 
-Bir sitenin tracking kurulumunu (GA4, Google Ads, Meta, TikTok, LinkedIn, X, DataLayer, sGTM / Google Tag Gateway, CMP + Consent Mode v2) aynı standartta denetleyen açık kaynak araç. E-ticaret / lead-gen tracking QA kontrol listesini otomatik uygular.
+An open-source tool that audits a site's tracking setup — GA4, Google Ads, Meta, TikTok, LinkedIn, X, DataLayer, sGTM / Google Tag Gateway, CMP + Consent Mode v2 — against the same standard. It automates an e-commerce / lead-gen tracking QA checklist.
 
-## Rapor içeriği
-Her platform için:
-- **Bileşen durumu** — `Bileşen | Durum (Mevcut/Kısmen/Hatalı/Yok) | Tespit | Risk / Eksiklik | Öneri`
-- **Hata tablosu** — event bazlı gruplanmış: `Event Name | Hata Açıklaması | Önem (1-3) | Hatalı Gelen Değer | Olması Gereken Değer | Etkisi`
-- **Doğru çalışan kontroller** — geçen her kontrol ve gözlenen (doğru) değer
-- **Yapılan tüm kontroller** — Doğru / Hatalı / Kısmen / Kontrol edilemedi filtresiyle
+## Report contents
+For every platform:
+- **Component status** — `Component | Status (Present/Partial/Faulty/Missing) | Detection | Risk / Gap | Recommendation`
+- **Error table** — grouped by event: `Event Name | Error Description | Severity (1-3) | Observed (Wrong) Value | Expected Value | Impact`
+- **Checks that passed** — every passing check with the observed (correct) value
+- **All checks performed** — filterable by Pass / Fail / Partial / Not verifiable
 
-Ayrıca platform envanteri, event eşleştirme tablosu, domaine özel DataLayer + online/offline funnel önerisi, geliştirme senaryoları ve sGTM Pantheon (Phoebe / Artemis / Zeus) önerileri. Tamamı stillenmiş **Excel** olarak indirilebilir.
+Plus a platform inventory, event mapping table, a domain-specific DataLayer + online/offline funnel plan, growth scenarios and sGTM Pantheon (Phoebe / Artemis / Zeus) recommendations. Everything can be downloaded as a styled **Excel** workbook.
 
-## Kullanım modları
-1. **Canlı tarama** — sitede URL girilir → önceden doldurulmuş GitHub issue açılır → `audit.yml` workflow'u Playwright ile siteyi 3 senaryoda gezer (onay öncesi · "Kabul et" + ürün/sepete ekle · "Reddet") → rapor `reports` dalına yazılır, issue'ya link yorumlanır.
-2. **HAR ile derin denetim** — DevTools'tan kaydedilen HAR (+ opsiyonel "Reddet sonrası" HAR ve dataLayer JSON) tamamen tarayıcıda analiz edilir; purchase dahil tam funnel.
-3. **Rapor aç** — `?id=<issue no>` ile.
+## Modes
+1. **Live scan** — enter a URL on the site → a pre-filled GitHub issue opens → the `audit.yml` workflow visits the site with Playwright in 3 scenarios (before consent · "Accept" + product / add to cart · "Reject") → the report is written to the `reports` branch and the link is posted on the issue.
+2. **Deep audit with HAR** — a HAR recorded in DevTools (+ optional post-"Reject" HAR and dataLayer JSON) is analysed entirely in the browser; covers the full funnel including purchase.
+3. **Open a report** — via `?id=<issue number>`.
 
-## Yapı
+## Structure
 ```
-site/                 GitHub Pages (statik)
-  assets/engine.js    Denetim motoru (tarayıcı + Node, UMD)
-  assets/excel.js     ExcelJS ile stillenmiş rapor
-  assets/app.js       Arayüz
+site/                 GitHub Pages (static)
+  assets/engine.js    Audit engine (browser + Node, UMD)
+  assets/excel.js     Styled report via ExcelJS
+  assets/app.js       UI
 scanner/
-  scan.mjs            Playwright tarayıcı (capture.json üretir)
-  report.mjs          capture → xlsx + issue özeti
-  test/fixture.mjs    Kasıtlı hatalı sentetik mağaza (npm test)
-.github/workflows/    pages.yml (yayın), audit.yml (tarama)
+  scan.mjs            Playwright scanner (produces capture.json)
+  report.mjs          capture → xlsx + issue summary
+  test/fixture.mjs    Synthetic store with deliberate errors (npm test)
+.github/workflows/    pages.yml (deploy), audit.yml (scan)
 ```
 
-## Sınırlar
-- Sunucu tarafı (Meta CAPI, TikTok Events API vb.) tarayıcıdan görülemez → "Kontrol edilemedi" olarak raporlanır.
-- Otomatik tarama checkout/purchase adımına giremez; bunun için HAR modu kullanılır.
-- Bulgular otomatik analizdir; GTM Preview / Tag Assistant / Events Manager ile doğrulayın.
+## Limits
+- Server-side setups (Meta CAPI, TikTok Events API, …) are not visible from the browser → reported as "Not verifiable".
+- The automated scan cannot complete checkout/purchase; use HAR mode for that.
+- Findings are automated analysis; verify with GTM Preview / Tag Assistant / Events Manager.
 
-## Yerel test
+## Local test
 ```bash
 cd scanner && npm install && npm test
 ```

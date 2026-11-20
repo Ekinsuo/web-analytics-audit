@@ -1,7 +1,7 @@
-// Canlı tarama: Playwright ile siteyi 2 senaryoda gezer ve denetim motoruna girdi üretir.
-//  A) onay öncesi → "Kabul et" → ürün / sepet sayfaları (funnel)
-//  B) temiz oturum → "Reddet" → sayfa yeniden yüklenir (reddet sonrası istekler + çerezler)
-// Kullanım: node scan.mjs --url https://site.com [--product URL] [--cart URL] [--sector ecommerce] [--currency TRY] --out capture.json
+// Live scan: visits the site with Playwright in 2 scenarios and produces input for the audit engine.
+//  A) before consent → "Accept" → product / cart pages (funnel)
+//  B) fresh session → "Reject" → page reload (post-reject requests + cookies)
+// Usage: node scan.mjs --url https://site.com [--product URL] [--cart URL] [--sector ecommerce] [--currency TRY] --out capture.json
 import { createRequire } from 'node:module';
 const { chromium } = createRequire(import.meta.url)('playwright');
 import fs from 'node:fs';
@@ -18,7 +18,7 @@ function normUrl(u) {
   u = String(u).trim();
   if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
   const x = new URL(u);
-  if (!/^https?:$/.test(x.protocol)) throw new Error('Sadece http/https desteklenir');
+  if (!/^https?:$/.test(x.protocol)) throw new Error('Only http/https URLs are supported');
   return x.toString();
 }
 function isPrivateIp(ip) {
@@ -30,13 +30,13 @@ function isPrivateIp(ip) {
 }
 async function assertPublic(u) {
   const h = new URL(u).hostname;
-  if (/^(localhost|.*\.local|.*\.internal)$/i.test(h)) throw new Error('Yerel/özel adresler taranamaz: ' + h);
+  if (/^(localhost|.*\.local|.*\.internal)$/i.test(h)) throw new Error('Local/private addresses cannot be scanned: ' + h);
   let addrs;
   try { addrs = await dns.lookup(h, { all: true }); } catch (e) {
-    if (process.env.HTTPS_PROXY) return; // yalnızca proxy arkasındaki yerel geliştirme ortamı
-    throw new Error('Host çözümlenemedi: ' + h);
+    if (process.env.HTTPS_PROXY) return; // local development behind a proxy only
+    throw new Error('Could not resolve host: ' + h);
   }
-  if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) throw new Error('Özel IP adresine çözümlenen host taranamaz: ' + h);
+  if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) throw new Error('Hosts resolving to private IPs cannot be scanned: ' + h);
 }
 
 const TRACK_RE = /collect|\/tr\/?|pixel|pagead|conversion|analytics|tag|gtm|gtag|track|event|adsct|insight|licdn|tiktok|facebook|doubleclick|bing|clarity|hotjar|criteo|pinterest|snapchat|consent|cookie|onetrust|usercentrics|didomi|yandex|segment|insider/i;
@@ -44,7 +44,7 @@ const TRACK_RE = /collect|\/tr\/?|pixel|pagead|conversion|analytics|tag|gtm|gtag
 const REJECT_SEL = ['#onetrust-reject-all-handler', '#CybotCookiebotDialogBodyButtonDecline', '#didomi-notice-disagree-button', '[data-testid="uc-deny-all-button"]', '.cky-btn-reject', '#truste-consent-required', '#iubenda-cs-reject', '.iubenda-cs-reject-btn', '.cmplz-deny', '.cmplz-btn.cmplz-deny', 'button.sp_choice_type_13', '#cookiescript_reject', '.cc-deny', '[data-cookiefirst-action="reject"]', '#axeptio_btn_dismiss', '.qc-cmp2-summary-buttons button[mode="secondary"]'];
 const ACCEPT_SEL = ['#onetrust-accept-btn-handler', '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', '#CybotCookiebotDialogBodyButtonAccept', '#didomi-notice-agree-button', '[data-testid="uc-accept-all-button"]', '.cky-btn-accept', '#truste-consent-button', '.iubenda-cs-accept-btn', '.cmplz-accept', 'button.sp_choice_type_11', '#cookiescript_accept', '.cc-allow', '.cc-accept', '[data-cookiefirst-action="accept"]', '#axeptio_btn_acceptAll', '.qc-cmp2-summary-buttons button[mode="primary"]'];
 const REJECT_TXT = /^\s*(tümünü reddet|hepsini reddet|reddet|tümünü reddedin|kabul etmiyorum|reject all|reject|decline all|decline|deny all|deny|refuse all|refuse|only necessary|necessary only|use necessary cookies only|sadece (gerekli|zorunlu)|yalnızca (gerekli|zorunlu)|zorunlu çerezler|alle ablehnen|ablehnen|nur notwendige)\b/i;
-const ACCEPT_TXT = /^\s*(tümünü kabul et|hepsini kabul et|tümüne izin ver|kabul et|kabul ediyorum|onayla|izin ver|accept all|accept all cookies|accept cookies|accept|allow all|allow cookies|i agree|agree|got it|ok|tamam|anladım|alle akzeptieren|akzeptieren)\b/i;
+const ACCEPT_TXT = /^\s*(tümünü kabul et|tümünü kabul ediyorum|tüm çerezleri kabul et|tümüne i̇zin ver|tümüne izin ver|çerezleri kabul et|hepsini kabul et|tümüne izin ver|kabul et|kabul ediyorum|onayla|izin ver|accept all|accept all cookies|accept cookies|accept|allow all|allow cookies|i agree|agree|got it|ok|tamam|anladım|alle akzeptieren|akzeptieren)\b/i;
 const ATC_TXT = /(sepete ekle|sepete at|add to (cart|bag|basket)|in den warenkorb|satın al|buy now|hemen al)/i;
 const PRODUCT_HREF = /(\/(p|product|products|urun|urunler|item|dp)\/|-p-\d+|-p\d+|\/[a-z0-9-]+-\d{4,}(\.html)?$|\.html$)/i;
 
@@ -54,18 +54,19 @@ async function findAndClick(page, selectors, textRe) {
       try {
         const loc = frame.locator(sel).first();
         if (await loc.isVisible({ timeout: 300 })) { await loc.click({ timeout: 3000 }); return sel; }
-      } catch { /* sonraki */ }
+      } catch { /* next */ }
     }
   }
   for (const frame of page.frames()) {
     try {
-      const btns = frame.locator('button, a[role="button"], [role="button"], input[type="button"], input[type="submit"], a');
-      const n = Math.min(await btns.count(), 300);
+      const btns = frame.locator('button, a[role="button"], [role="button"], input[type="button"], input[type="submit"], a, [class*="cookie" i] div, [class*="cookie" i] span, [id*="cookie" i] div, [id*="cookie" i] span');
+      const n = Math.min(await btns.count(), 400);
       for (let i = 0; i < n; i++) {
         const b = btns.nth(i);
         let t = '';
         try { t = ((await b.innerText({ timeout: 200 })) || (await b.getAttribute('value')) || '').trim(); } catch { continue; }
-        if (t && t.length < 40 && textRe.test(t)) {
+        const tn = t.toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ');
+        if (t && t.length < 40 && (textRe.test(t) || textRe.test(tn) || textRe.test(t.toLowerCase()))) {
           try { if (await b.isVisible()) { await b.click({ timeout: 3000 }); return 'text:"' + t + '"'; } } catch { /* */ }
         }
       }
@@ -113,7 +114,7 @@ async function scrollPage(page) {
   try { await page.evaluate(async () => { for (let y = 0; y < document.body.scrollHeight && y < 8000; y += 800) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 150)); } }); } catch { /* */ }
 }
 
-// Test modu: AUDIT_MOCK=<fixture.mjs> → tüm istekler fixture tarafından yanıtlanır (ağ yok)
+// Test mode: AUDIT_MOCK=<fixture.mjs> → every request is answered by the fixture (no network)
 const mock = process.env.AUDIT_MOCK ? (await import(new URL(process.env.AUDIT_MOCK, 'file://' + process.cwd() + '/').href)).default : null;
 async function prepare(context) { if (mock) await context.route('**/*', mock); }
 
@@ -146,7 +147,7 @@ async function main() {
     phases: {}, dataLayer: [], html: '', cmp: {}, pages: []
   };
 
-  // ---------------- Senaryo A: onay öncesi → kabul → funnel
+  // ---------------- Scenario A: before consent → accept → funnel
   const ctxA = await browser.newContext({ userAgent: UA, locale: 'tr-TR', viewport: { width: 1366, height: 900 } });
   const A = { requests: [] };
   await prepare(ctxA);
@@ -155,7 +156,7 @@ async function main() {
   const dlPages = [];
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-  } catch (e) { notes.push('Ana sayfa yüklenemedi: ' + e.message.split('\n')[0]); }
+  } catch (e) { notes.push('Home page failed to load: ' + e.message.split('\n')[0]); }
   await settle(page, 5000);
   capture.html = (await page.content().catch(() => '')).slice(0, 400000);
   const bi = await bannerInfo(page);
@@ -166,13 +167,13 @@ async function main() {
   A.phase = 'accepted';
   const acc = await findAndClick(page, ACCEPT_SEL, ACCEPT_TXT);
   capture.cmp.acceptClicked = !!acc; capture.cmp.acceptSelector = acc || '';
-  if (!acc) notes.push('"Kabul et" butonu otomatik bulunamadı; funnel onay verilmeden gezildi.');
+  if (!acc) notes.push('"Accept" button could not be found automatically; the funnel was browsed without consent.');
   await settle(page, 3000);
   await scrollPage(page);
   await page.waitForTimeout(1500);
   dlPages.push(await snapshotDL(page));
 
-  // Ürün sayfası
+  // Product page
   let productUrl = extra[0];
   if (!productUrl) {
     const origin = new URL(page.url() || url).origin;
@@ -181,7 +182,28 @@ async function main() {
       const links = Array.from(document.querySelectorAll('a[href]')).map((a) => a.href).filter((h) => h.startsWith(origin) && re.test(new URL(h).pathname) && !/(login|giris|uye|account|hesap|sepet|cart|blog|kampanya|iletisim|contact|yardim|help|sss|faq)/i.test(h));
       return links[Math.floor(links.length / 3)] || links[0] || null;
     }, [origin, PRODUCT_HREF.source]).catch(() => null);
-    if (productUrl) notes.push('Ürün sayfası otomatik seçildi: ' + productUrl);
+    if (!productUrl) {
+      // Fallback: open a category/listing page from the navigation and look for products there
+      const cats = await page.evaluate((origin) => Array.from(document.querySelectorAll('nav a[href], header a[href], a[href]'))
+        .map((a) => a.href).filter((h) => h.startsWith(origin) && new URL(h).pathname.length > 1 && !/(login|giris|uye|account|hesap|sepet|cart|blog|iletisim|contact|yardim|help|sss|faq|magaza|store-locator|kvkk|privacy|gizlilik|cookie|cerez)/i.test(h))
+        .filter((h, i, arr) => arr.indexOf(h) === i).slice(0, 40), origin).catch(() => []);
+      for (const c of cats.slice(0, 3)) {
+        try {
+          await page.goto(c, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await settle(page, 2500);
+          await scrollPage(page);
+          dlPages.push(await snapshotDL(page));
+          capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => '') });
+          productUrl = await page.evaluate(([origin, src]) => {
+            const re = new RegExp(src, 'i');
+            const links = Array.from(document.querySelectorAll('a[href]')).map((a) => a.href).filter((h) => h.startsWith(origin) && re.test(new URL(h).pathname));
+            return links[Math.floor(links.length / 3)] || links[0] || null;
+          }, [origin, PRODUCT_HREF.source]).catch(() => null);
+          if (productUrl) { notes.push('Listing page visited: ' + c); break; }
+        } catch { /* next */ }
+      }
+    }
+    if (productUrl) notes.push('Product page auto-selected: ' + productUrl);
   }
   if (productUrl) {
     try {
@@ -190,11 +212,11 @@ async function main() {
       await scrollPage(page);
       capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => '') });
       const atc = await findAndClick(page, ['[data-testid*="add-to-cart" i]', 'button[name="add"]', '#add-to-cart', '.add-to-cart', 'button.add_to_cart_button', '#addToCart', '[class*="addToCart" i]', '[class*="add-to-basket" i]', '[class*="sepete" i]'], ATC_TXT);
-      if (atc) { notes.push('Sepete ekle tıklandı: ' + atc); await page.waitForTimeout(5000); }
-      else notes.push('Ürün sayfasında "Sepete ekle" butonu bulunamadı (varyant seçimi gerekebilir).');
+      if (atc) { notes.push('Add-to-cart clicked: ' + atc); await page.waitForTimeout(5000); }
+      else notes.push('No "Add to cart" button found on the product page (a variant may need to be selected).');
       dlPages.push(await snapshotDL(page));
-    } catch (e) { notes.push('Ürün sayfası açılamadı: ' + e.message.split('\n')[0]); }
-  } else notes.push('Ürün sayfası bulunamadı; funnel yalnızca ana sayfadan denetlendi. Daha kapsamlı sonuç için ürün URL\'si girin veya HAR modunu kullanın.');
+    } catch (e) { notes.push('Product page failed to load: ' + e.message.split('\n')[0]); }
+  } else notes.push('No product page found; the funnel was audited from the home page only. Enter a product URL or use HAR mode for fuller results.');
 
   for (const [i, u] of [[1, extra[1]], [2, extra[2]]]) {
     if (!u) continue;
@@ -203,7 +225,7 @@ async function main() {
       await settle(page, 4000);
       capture.pages.push({ url: page.url(), phase: 'accepted', title: await page.title().catch(() => '') });
       dlPages.push(await snapshotDL(page));
-    } catch (e) { notes.push((i === 1 ? 'Sepet' : 'Checkout') + ' sayfası açılamadı: ' + e.message.split('\n')[0]); }
+    } catch (e) { notes.push((i === 1 ? 'Cart' : 'Checkout') + ' page failed to load: ' + e.message.split('\n')[0]); }
   }
   const accCookies = (await ctxA.cookies()).map((c) => ({ name: c.name, domain: c.domain }));
   capture.phases.pre_consent = { requests: A.requests.filter((r) => r.phase === 'pre_consent'), cookies: preCookies };
@@ -211,7 +233,7 @@ async function main() {
   capture.dataLayer = [].concat(...dlPages);
   await ctxA.close();
 
-  // ---------------- Senaryo B: temiz oturum → reddet
+  // ---------------- Scenario B: fresh session → reject
   const ctxB = await browser.newContext({ userAgent: UA, locale: 'tr-TR', viewport: { width: 1366, height: 900 } });
   const B = { requests: [] };
   await prepare(ctxB);
@@ -230,16 +252,16 @@ async function main() {
       await scrollPage(pb);
       if (productUrl) { try { await pb.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }); await settle(pb, 4000); } catch { /* */ } }
       capture.phases.after_reject = { requests: B.requests.filter((r) => r.phase === 'after_reject'), cookies: (await ctxB.cookies()).map((c) => ({ name: c.name, domain: c.domain })) };
-    } else notes.push('"Reddet" butonu otomatik bulunamadı; reddet testi yapılamadı (2 katmanlı CMP olabilir).');
-  } catch (e) { notes.push('Reddet senaryosu çalıştırılamadı: ' + e.message.split('\n')[0]); }
+    } else notes.push('"Reject" button could not be found automatically; reject test skipped (the CMP may have two layers).');
+  } catch (e) { notes.push('Reject scenario failed: ' + e.message.split('\n')[0]); }
   await ctxB.close();
   await browser.close();
 
   capture.meta.requestCount = Object.values(capture.phases).reduce((a, p) => a + p.requests.length, 0);
   fs.mkdirSync(path.dirname(path.resolve(OUT)), { recursive: true });
   fs.writeFileSync(OUT, JSON.stringify(capture));
-  console.log(`Tarama tamamlandı: ${capture.meta.requestCount} istek, ${capture.dataLayer.length} dataLayer push → ${OUT}`);
+  console.log(`Scan complete: ${capture.meta.requestCount} requests, ${capture.dataLayer.length} dataLayer pushes → ${OUT}`);
   notes.forEach((n) => console.log(' - ' + n));
 }
 
-main().catch((e) => { console.error('HATA:', e.message); fs.writeFileSync(OUT + '.error', e.message); process.exit(1); });
+main().catch((e) => { console.error('ERROR:', e.message); fs.writeFileSync(OUT + '.error', e.message); process.exit(1); });

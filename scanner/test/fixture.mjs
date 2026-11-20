@@ -1,11 +1,11 @@
-// Test/demo amaçlı sahte mağaza (demo-magaza.test). Kasıtlı hatalar içerir:
-//  - Meta Pixel onay öncesi ve "Reddet" sonrası da tetikleniyor (KVKK/GDPR)
-//  - dataLayer'da açık metin e-posta
-//  - Meta ViewContent content_ids number array, AddToCart çift tetikleniyor, eid yok
-//  - GA4 add_to_cart value string / currency eksik; user_id yok
-//  - TikTok AddToCart'ta content_id number
-// Tüm istekler ağ yerine bu modül tarafından yanıtlanır.
-const SITE = 'demo-magaza.test';
+// Fake store for tests/demo (demo-store.test). Contains deliberate errors:
+//  - Meta Pixel fires before consent and after "Reject" (GDPR)
+//  - plain-text email in the dataLayer
+//  - Meta ViewContent content_ids as number array, AddToCart fires twice, no eid
+//  - GA4 add_to_cart value as string / currency missing; no user_id
+//  - TikTok AddToCart content_id is a number
+// Every request is answered by this module instead of the network.
+const SITE = 'demo-store.test';
 
 const TAGS = `
 <script>
@@ -34,7 +34,7 @@ const TAGS = `
   };
   var s=document.createElement('script'); s.src='https://www.googletagmanager.com/gtm.js?id=GTM-DEMO01'; document.head.appendChild(s);
   var f=document.createElement('script'); f.src='https://connect.facebook.net/en_US/fbevents.js'; document.head.appendChild(f);
-  // HATA: Meta PageView consent beklemeden tetikleniyor
+  // BUG: Meta PageView fires without waiting for consent
   fbq('PageView');
   document.cookie='_fbp=fb.1.1700000000.123;path=/';
   window.afterConsent=function(){
@@ -42,8 +42,8 @@ const TAGS = `
     ga4('page_view',{});
     if(window.pageType==='product'){
       dataLayer.push({ecommerce:null});
-      dataLayer.push({event:'view_item',ecommerce:{currency:'TRY',value:3995,items:[{item_id:'164592',item_name:'Yün Kazak',price:3995,quantity:1}]}});
-      ga4('view_item',{currency:'TRY',value:3995},[{item_id:'164592',item_name:'Yün Kazak',price:3995,quantity:1}]);
+      dataLayer.push({event:'view_item',ecommerce:{currency:'TRY',value:3995,items:[{item_id:'164592',item_name:'Wool Sweater',price:3995,quantity:1}]}});
+      ga4('view_item',{currency:'TRY',value:3995},[{item_id:'164592',item_name:'Wool Sweater',price:3995,quantity:1}]);
       fbq('ViewContent',{content_ids:[164592],content_type:'product',value:'3995',currency:'TRY'});
       if(consent()==='all') ttq('ViewContent',{contents:[{content_id:'164592',quantity:1,price:3995}],content_type:'product',value:3995,currency:'TRY'});
       if(consent()==='all') send('https://googleads.g.doubleclick.net/pagead/viewthroughconversion/701234567/?random=1&cv=11&fst=1&value=0&gcs='+gcs()+'&gcd='+gcd()+'&data=event%3Dview_item');
@@ -51,8 +51,8 @@ const TAGS = `
   };
   if(consent()!=='none') afterConsent();
   window.addToCart=function(){
-    dataLayer.push({event:'add_to_cart',ecommerce:{currency:'TRY',value:'3995',items:[{item_id:'164592',item_name:'Yün Kazak',price:'3995',quantity:1}]}});
-    ga4('add_to_cart',{value:'3995'},[{item_id:'164592',item_name:'Yün Kazak',price:3995}]);
+    dataLayer.push({event:'add_to_cart',ecommerce:{currency:'TRY',value:'3995',items:[{item_id:'164592',item_name:'Wool Sweater',price:'3995',quantity:1}]}});
+    ga4('add_to_cart',{value:'3995'},[{item_id:'164592',item_name:'Wool Sweater',price:3995}]);
     fbq('AddToCart',{content_ids:'164592,164593',content_type:'product',value:3995,currency:'TRY'});
     fbq('AddToCart',{content_ids:'164592,164593',content_type:'product',value:3995,currency:'TRY'});
     ttq('AddToCart',{contents:[{content_id:164592,quantity:1}],value:'3995',currency:'TRY'});
@@ -61,32 +61,32 @@ const TAGS = `
 </script>`;
 
 function page(title, body, pageType) {
-  return `<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${title}</title>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title>
 <script>
 window.dataLayer=window.dataLayer||[]; function gtag(){dataLayer.push(arguments);}
 gtag('consent','default',{ad_storage:'denied',analytics_storage:'denied',wait_for_update:500});
 dataLayer.push({event:'gtm.js','gtm.start':Date.now()});
-dataLayer.push({event:'user_info',user:{email:'ayse.yilmaz@example.com',segment:'vip'}});
+dataLayer.push({event:'user_info',user:{email:'jane.doe@example.com',segment:'vip'}});
 window.pageType='${pageType}';
 </script>${TAGS}</head><body style="font-family:sans-serif">
-<header><a href="/">Demo Mağaza</a> · <a href="/sepet">Sepet</a></header>
+<header><a href="/">Demo Store</a> · <a href="/cart">Cart</a></header>
 ${body}
 <div id="cookie-banner" style="position:fixed;bottom:0;left:0;right:0;background:#222;color:#fff;padding:16px">
- Bu sitede çerezler kullanılmaktadır. KVKK aydınlatma metni.
- <button id="acc" onclick="document.cookie='demo_consent=all;path=/';dataLayer.push({0:'consent',1:'update',2:{ad_storage:'granted',analytics_storage:'granted',ad_user_data:'granted',ad_personalization:'granted'},__args:true});afterConsent();this.parentNode.remove()">Tümünü Kabul Et</button>
- <button id="rej" onclick="document.cookie='demo_consent=denied;path=/';this.parentNode.remove()">Reddet</button>
+ This site uses cookies. Privacy notice.
+ <button id="acc" onclick="document.cookie='demo_consent=all;path=/';dataLayer.push({0:'consent',1:'update',2:{ad_storage:'granted',analytics_storage:'granted',ad_user_data:'granted',ad_personalization:'granted'},__args:true});afterConsent();this.parentNode.remove()">Accept all</button>
+ <button id="rej" onclick="document.cookie='demo_consent=denied;path=/';this.parentNode.remove()">Reject all</button>
 </div>
 <script>if((document.cookie.match(/demo_consent=(\\w+)/)||[])[1]) document.getElementById('cookie-banner').remove();</script>
 </body></html>`;
 }
 
-const HOME = page('Demo Mağaza', `<h1>Yeni sezon</h1><ul><li><a href="/urun/yun-kazak-164592">Yün Kazak</a></li><li><a href="/urun/keten-gomlek-164593">Keten Gömlek</a></li><li><a href="/urun/kot-pantolon-164594">Kot Pantolon</a></li></ul>`, 'home');
-const PRODUCT = page('Yün Kazak', `<h1>Yün Kazak</h1><p>3.995 TL</p><button class="add-to-cart" onclick="addToCart()">Sepete Ekle</button>`, 'product');
+const HOME = page('Demo Store', `<h1>New season</h1><ul><li><a href="/product/wool-sweater-164592">Wool Sweater</a></li><li><a href="/product/linen-shirt-164593">Linen Shirt</a></li><li><a href="/product/denim-jeans-164594">Denim Jeans</a></li></ul>`, 'home');
+const PRODUCT = page('Wool Sweater', `<h1>Wool Sweater</h1><p>3,995 TRY</p><button class="add-to-cart" onclick="addToCart()">Add to cart</button>`, 'product');
 
 export default async function handler(route) {
   const url = new URL(route.request().url());
   if (url.hostname === SITE) {
-    const body = url.pathname.startsWith('/urun/') ? PRODUCT : HOME;
+    const body = url.pathname.startsWith('/product/') ? PRODUCT : HOME;
     return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body });
   }
   if (/\.js(\?|$)/.test(url.pathname) || url.pathname.endsWith('/gtm.js')) return route.fulfill({ status: 200, contentType: 'application/javascript', body: '/* mock */' });
